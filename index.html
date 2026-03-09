@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hangman</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Courier New', monospace;
+      background: #1a1a2e;
+      color: #eee;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .container {
+      text-align: center;
+      max-width: 500px;
+      width: 90%;
+    }
+    h1 { font-size: 2rem; margin-bottom: 1.5rem; color: #e94560; }
+    .hangman-art {
+      font-size: 1.4rem;
+      line-height: 1.3;
+      margin: 1rem 0;
+      white-space: pre;
+      color: #0f3460;
+      background: #16213e;
+      padding: 1rem;
+      border-radius: 8px;
+    }
+    .word-display {
+      font-size: 2rem;
+      letter-spacing: 0.5rem;
+      margin: 1.5rem 0;
+      color: #e94560;
+    }
+    .info { color: #999; margin: 0.5rem 0; }
+    .keyboard {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 6px;
+      margin: 1.5rem 0;
+    }
+    .keyboard button {
+      width: 38px; height: 38px;
+      font-size: 1rem;
+      font-family: 'Courier New', monospace;
+      border: 1px solid #0f3460;
+      background: #16213e;
+      color: #eee;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .keyboard button:hover:not(:disabled) {
+      background: #e94560;
+      border-color: #e94560;
+    }
+    .keyboard button:disabled {
+      opacity: 0.3;
+      cursor: default;
+    }
+    .keyboard button.correct { background: #2d6a4f; border-color: #2d6a4f; }
+    .keyboard button.wrong { background: #6b2039; border-color: #6b2039; }
+    .btn {
+      padding: 0.7rem 2rem;
+      font-size: 1rem;
+      font-family: 'Courier New', monospace;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      background: #e94560;
+      color: #fff;
+      margin: 0.5rem;
+      transition: background 0.15s;
+    }
+    .btn:hover { background: #c81e45; }
+    input[type="text"], input[type="password"] {
+      padding: 0.7rem 1rem;
+      font-size: 1.2rem;
+      font-family: 'Courier New', monospace;
+      border: 2px solid #0f3460;
+      background: #16213e;
+      color: #eee;
+      border-radius: 8px;
+      text-align: center;
+      outline: none;
+      width: 80%;
+      margin: 1rem 0;
+    }
+    input:focus { border-color: #e94560; }
+    .message {
+      font-size: 1.5rem;
+      margin: 1rem 0;
+      font-weight: bold;
+    }
+    .win { color: #2d6a4f; }
+    .lose { color: #e94560; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>HANGMAN</h1>
+
+    <!-- Screen 1: Player 1 enters word -->
+    <div id="setup-screen">
+      <p>Player 1, enter a secret word:</p>
+      <input type="password" id="word-input" placeholder="secret word" autocomplete="off">
+      <br>
+      <button class="btn" id="start-btn">Start Game</button>
+      <p class="info" id="setup-error"></p>
+    </div>
+
+    <!-- Screen 2: Player 2 guesses -->
+    <div id="game-screen" class="hidden">
+      <div class="hangman-art" id="hangman-art"></div>
+      <div class="word-display" id="word-display"></div>
+      <p class="info">Lives: <span id="lives"></span></p>
+      <p class="info">Wrong: <span id="wrong-letters">none</span></p>
+      <div class="keyboard" id="keyboard"></div>
+    </div>
+
+    <!-- Screen 3: Game over -->
+    <div id="end-screen" class="hidden">
+      <div class="hangman-art" id="end-art"></div>
+      <p class="message" id="end-message"></p>
+      <p class="info">The word was: <strong id="reveal-word"></strong></p>
+      <button class="btn" id="replay-btn">Play Again</button>
+    </div>
+  </div>
+
+  <script>
+    const STAGES = [
+      "  -----\n  |   |\n      |\n      |\n      |\n      |\n=========",
+      "  -----\n  |   |\n  O   |\n      |\n      |\n      |\n=========",
+      "  -----\n  |   |\n  O   |\n  |   |\n      |\n      |\n=========",
+      "  -----\n  |   |\n  O   |\n /|   |\n      |\n      |\n=========",
+      "  -----\n  |   |\n  O   |\n /|\\  |\n      |\n      |\n=========",
+      "  -----\n  |   |\n  O   |\n /|\\  |\n /    |\n      |\n=========",
+      "  -----\n  |   |\n  O   |\n /|\\  |\n / \\  |\n      |\n========="
+    ];
+    const MAX_WRONG = STAGES.length - 1;
+
+    let secretWord, guessed, wrongCount;
+
+    const $ = id => document.getElementById(id);
+
+    function init() {
+      $("setup-screen").classList.remove("hidden");
+      $("game-screen").classList.add("hidden");
+      $("end-screen").classList.add("hidden");
+      $("word-input").value = "";
+      $("setup-error").textContent = "";
+      $("word-input").focus();
+    }
+
+    function startGame() {
+      const word = $("word-input").value.trim().toLowerCase();
+      if (!word || !/^[a-z]{2,}$/.test(word)) {
+        $("setup-error").textContent = "Enter a word with at least 2 letters (letters only).";
+        return;
+      }
+      secretWord = word;
+      guessed = new Set();
+      wrongCount = 0;
+
+      $("setup-screen").classList.add("hidden");
+      $("game-screen").classList.remove("hidden");
+
+      buildKeyboard();
+      updateDisplay();
+    }
+
+    function buildKeyboard() {
+      const kb = $("keyboard");
+      kb.innerHTML = "";
+      for (let i = 0; i < 26; i++) {
+        const letter = String.fromCharCode(97 + i);
+        const btn = document.createElement("button");
+        btn.textContent = letter.toUpperCase();
+        btn.addEventListener("click", () => guess(letter, btn));
+        kb.appendChild(btn);
+      }
+    }
+
+    function guess(letter, btn) {
+      if (guessed.has(letter)) return;
+      guessed.add(letter);
+      btn.disabled = true;
+
+      if (secretWord.includes(letter)) {
+        btn.classList.add("correct");
+      } else {
+        btn.classList.add("wrong");
+        wrongCount++;
+      }
+
+      updateDisplay();
+
+      if (wrongCount >= MAX_WRONG) endGame(false);
+      else if ([...secretWord].every(ch => guessed.has(ch))) endGame(true);
+    }
+
+    function updateDisplay() {
+      $("hangman-art").textContent = STAGES[wrongCount];
+      $("word-display").textContent = [...secretWord].map(ch => guessed.has(ch) ? ch : "_").join(" ");
+      $("lives").textContent = MAX_WRONG - wrongCount;
+      const wrong = [...guessed].filter(l => !secretWord.includes(l));
+      $("wrong-letters").textContent = wrong.length ? wrong.join(", ") : "none";
+    }
+
+    function endGame(won) {
+      $("game-screen").classList.add("hidden");
+      $("end-screen").classList.remove("hidden");
+      $("end-art").textContent = STAGES[wrongCount];
+      $("reveal-word").textContent = secretWord.toUpperCase();
+      const msg = $("end-message");
+      if (won) {
+        msg.textContent = "Player 2 wins!";
+        msg.className = "message win";
+      } else {
+        msg.textContent = "Game over!";
+        msg.className = "message lose";
+      }
+    }
+
+    // Keyboard input
+    document.addEventListener("keydown", e => {
+      if (!$("game-screen").classList.contains("hidden")) {
+        const key = e.key.toLowerCase();
+        if (/^[a-z]$/.test(key) && !guessed.has(key)) {
+          const btns = $("keyboard").children;
+          const btn = btns[key.charCodeAt(0) - 97];
+          guess(key, btn);
+        }
+      }
+    });
+
+    $("start-btn").addEventListener("click", startGame);
+    $("word-input").addEventListener("keydown", e => { if (e.key === "Enter") startGame(); });
+    $("replay-btn").addEventListener("click", init);
+
+    init();
+  </script>
+</body>
+</html>
